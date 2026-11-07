@@ -92,23 +92,29 @@ starts if a project container is down (it returns 502 until it is back).
 ## Main domain (apex)
 
 `@` stands for the apex `<DOMAIN>` itself (the wildcard certificate already
-covers it). The file is `nginx/conf.d/<DOMAIN>.conf`. Pick one variant; they
-share the same file, so switch with `--force`.
+covers it). The apex file is `nginx/conf.d/<DOMAIN>.conf`.
+
+**Recommended: apex is canonical (no `www`)**
 
 ```sh
-# A. Proxy the apex to a project (same options as a subdomain: picker, --ws)
-scripts/add-site.sh @ app:3000
-
-# B. Redirect the apex to a subdomain: 301 to https://www.<DOMAIN>$request_uri
-#    on both 80 and 443, no proxying (add the www site separately)
-scripts/add-site.sh @ --redirect www
-scripts/add-site.sh www app:3000
+scripts/add-site.sh @ app:3000          # https://<DOMAIN> -> project
+scripts/add-site.sh www --redirect @    # https://www.<DOMAIN>/x?y=1 -> 301 https://<DOMAIN>/x?y=1
 ```
 
-`--redirect` works only with `@`, takes no upstream, and the target is
-validated like any subdomain. Remove with `scripts/remove-site.sh @`. The apex
-DNS record must exist (Cloudflare flattens an apex CNAME if you use one);
-without a server block for it, Cloudflare shows error 525.
+**Alternative: `www` is canonical**
+
+```sh
+scripts/add-site.sh www app:3000
+scripts/add-site.sh @ --redirect www
+```
+
+`--redirect <target>` works for any site and any target (a subdomain or `@`)
+on ports 80 and 443, keeps the path and query string, takes no upstream, and
+refuses a site that redirects to itself. A host has one file, so to change a
+site from proxy to redirect (or back) re-run the command with `--force`.
+Remove with `scripts/remove-site.sh @` / `remove-site.sh www`. Both DNS records
+(apex and `www`) must exist; without a server block for a host, Cloudflare
+shows error 525.
 
 ## Removing a project
 
