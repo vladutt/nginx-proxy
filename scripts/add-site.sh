@@ -110,6 +110,11 @@ if [[ -n "$REDIRECT" ]]; then
   TEMPLATE="$TEMPLATE_DIR/redirect.conf.template"
   TARGET="$(host_for "$REDIRECT" "$DOMAIN")"
   DEST="$TARGET (301)"
+  # Loop guard: refuse if the target's file already redirects back to this host.
+  if (( ! FORCE )) && [[ -f "$CONF_DIR/$TARGET.conf" ]] \
+     && grep -qF "return 301 https://$HOST\$request_uri" "$CONF_DIR/$TARGET.conf"; then
+    die "redirect loop: $TARGET already redirects to $HOST (use --force to write it anyway)"
+  fi
 else
   [[ -n "$UPSTREAM" ]] || pick_upstream
   validate_upstream "$UPSTREAM"
