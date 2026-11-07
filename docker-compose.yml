@@ -10,6 +10,8 @@ services:
     image: nginx:1.28-alpine
     container_name: nginx-proxy
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     logging: *default-logging
     ports:
       - "80:80"
@@ -40,6 +42,8 @@ services:
     image: certbot/dns-cloudflare:v3.1.0
     container_name: nginx-proxy-certbot
     restart: unless-stopped
+    security_opt:
+      - no-new-privileges:true
     logging: *default-logging
     volumes:
       - ./certbot/conf:/etc/letsencrypt
