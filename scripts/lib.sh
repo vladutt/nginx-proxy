@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Shared helpers for add-site.sh / remove-site.sh. Source it, do not run it.
+# Shared helpers for the scripts in this directory. Source it, do not run it.
 
 ROOT="$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)"
 # shellcheck disable=SC2034  # used by the scripts that source this file
@@ -27,7 +27,7 @@ validate_label() {
 }
 
 validate_domain() {
-  [[ "$1" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ || "$1" =~ ^[a-z0-9.-]+\.(test|local|localhost)$ ]] \
+  [[ "$1" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] \
     || die "invalid DOMAIN '$1' (set it in .env)"
 }
 
@@ -60,20 +60,4 @@ nginx_reload() {
   else
     info "nginx is not running; start it with: docker compose up -d"
   fi
-}
-
-# cert_exists HOSTNAME -> 0 if a certificate lineage exists in the volume.
-cert_exists() {
-  docker compose run --rm --no-deps -T --entrypoint test certbot \
-    -f "/etc/letsencrypt/live/$1/fullchain.pem" >/dev/null 2>&1
-}
-
-certbot_args() {
-  # One argument per line. Caller must check LETSENCRYPT_EMAIL is set first.
-  local host="$1" email staging
-  email="$(env_value LETSENCRYPT_EMAIL)"
-  staging="$(env_value LETSENCRYPT_STAGING)"
-  printf '%s\n' certonly --webroot -w /var/www/certbot -d "$host" \
-    --email "$email" --agree-tos --no-eff-email --non-interactive
-  if [[ "$staging" == "1" ]]; then printf '%s\n' --staging; fi
 }

@@ -1,31 +1,30 @@
 #!/usr/bin/env bash
 # Add a proxied site: nginx/conf.d/<subdomain>.<DOMAIN>.conf
 #
-# Usage: scripts/add-site.sh <subdomain> [upstream] [--ws] [--force] [--issue]
+# Usage: scripts/add-site.sh <subdomain> [upstream] [--ws] [--force] [--dry-run]
 #   upstream  host:port. A container name on the proxy network (myapp:3000)
 #             or a service on the host (host.docker.internal:3001).
 #             Omit it to pick from the running containers.
-#   --ws      enable WebSocket upgrade for this site
-#   --force   overwrite an existing site file
-#   --issue   run certbot automatically (otherwise the command is printed)
+#   --ws       enable WebSocket upgrade for this site
+#   --force    overwrite an existing site file
+#   --dry-run  print the generated config, change nothing
 #
-# Two-stage bootstrap: without a certificate the file is written HTTP-only
-# (ACME challenge + 503). After the certificate exists, the full HTTPS file
-# is written. Re-run with --force once the certificate is issued.
+# The site uses the wildcard certificate from scripts/init-cert.sh; no
+# certificate is issued per site.
 set -euo pipefail
 
 # shellcheck source=scripts/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-usage() { sed -n '2,14p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
+usage() { sed -n '2,12p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
 
-SUB="" UPSTREAM="" WS=0 FORCE=0 ISSUE=0
+SUB="" UPSTREAM="" WS=0 FORCE=0 DRY=0
 for arg in "$@"; do
   case "$arg" in
     -h|--help) usage 0 ;;
     --ws) WS=1 ;;
     --force) FORCE=1 ;;
-    --issue) ISSUE=1 ;;
+    --dry-run) DRY=1 ;;
     -*) die "unknown option: $arg" ;;
     *)
       if [[ -z "$SUB" ]]; then SUB="$arg"
@@ -44,7 +43,7 @@ validate_domain "$DOMAIN"
 HOST="$SUB.$DOMAIN"
 CONF="$CONF_DIR/$HOST.conf"
 
-if [[ -e "$CONF" && $FORCE -ne 1 ]]; then
+if (( ! DRY )) && [[ -e "$CONF" && $FORCE -ne 1 ]]; then
   die "$CONF already exists (use --force to overwrite)"
 fi
 
@@ -95,7 +94,7 @@ validate_upstream "$UPSTREAM"
 UP_HOST="${UPSTREAM%:*}"; UP_PORT="${UPSTREAM##*:}"
 case "$UP_HOST" in
   localhost|127.0.0.1)
-    info "note: '$UP_HOST' inside the nginx container is nginx itself; using host.docker.internal"
+    info "note: '$UP_HOST' inside the nginx container is nginx itself; using host.docker.internal" >&2
     UP_HOST="host.docker.internal" ;;
 esac
 
@@ -122,44 +121,21 @@ render() {
   printf '%s\n' "$content"
 }
 
-# apply_template <template>: write, nginx -t, reload; restore previous state on failure.
-apply_template() {
-  local tpl="$1" snap="" had=0
-  if [[ -e "$CONF" ]]; then had=1; snap="$(mktemp)"; cp "$CONF" "$snap"; fi
-  render "$tpl" > "$CONF"
-  if nginx_test; then
-    [[ -z "$snap" ]] || rm -f "$snap"
-    nginx_reload
-  else
-    if (( had )); then cp "$snap" "$CONF"; rm -f "$snap"; else rm -f "$CONF"; fi
-    die "nginx -t failed; change rolled back"
-  fi
-}
-
-if cert_exists "$HOST"; then
-  info "Certificate for $HOST found; enabling HTTPS."
-  apply_template "$TEMPLATE_DIR/site.conf.template"
-  info "Done: https://$HOST -> $UP_HOST:$UP_PORT"
+if (( DRY )); then
+  render "$TEMPLATE_DIR/site.conf.template"
   exit 0
 fi
 
-info "No certificate for $HOST yet; writing HTTP-only stage."
-apply_template "$TEMPLATE_DIR/site.http.conf.template"
-
-[[ -n "$(env_value LETSENCRYPT_EMAIL)" ]] || die "LETSENCRYPT_EMAIL is not set (.env)"
-CB=()
-while IFS= read -r a; do CB+=("$a"); done < <(certbot_args "$HOST")
-info
-info "Issue the certificate (DNS for $HOST must point at this server, port 80 open):"
-printf '  docker compose run --rm --entrypoint certbot certbot'
-printf ' %q' "${CB[@]}"; printf '\n'
-
-if (( ISSUE )); then
-  docker compose run --rm --entrypoint certbot certbot "${CB[@]}"
-  apply_template "$TEMPLATE_DIR/site.conf.template"
+# Write, nginx -t, reload; restore the previous state on failure.
+snap="" had=0
+if [[ -e "$CONF" ]]; then had=1; snap="$(mktemp)"; cp "$CONF" "$snap"; fi
+render "$TEMPLATE_DIR/site.conf.template" > "$CONF"
+if nginx_test; then
+  [[ -z "$snap" ]] || rm -f "$snap"
+  nginx_reload
   info "Done: https://$HOST -> $UP_HOST:$UP_PORT"
 else
-  info
-  info "Then enable HTTPS by re-running:"
-  printf '  scripts/add-site.sh %s %s%s --force\n' "$SUB" "$UP_HOST:$UP_PORT" "$( (( WS )) && printf ' --ws' || true )"
+  if (( had )); then cp "$snap" "$CONF"; rm -f "$snap"; else rm -f "$CONF"; fi
+  info "hint: has the wildcard certificate been issued? Run scripts/init-cert.sh" >&2
+  die "nginx -t failed; change rolled back"
 fi
