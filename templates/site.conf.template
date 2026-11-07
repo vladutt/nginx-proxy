@@ -16,6 +16,7 @@ server {
     include /etc/nginx/snippets/ssl-cert.conf;
     include /etc/nginx/snippets/ssl-params.conf;
     include /etc/nginx/snippets/security-headers.conf;
+    include /etc/nginx/snippets/rate-limit.conf;
 
     location / {
 @@UPSTREAM_DIRECTIVES@@
