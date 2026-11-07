@@ -89,10 +89,31 @@ Container names resolve at request time through Docker DNS, so nginx still
 starts if a project container is down (it returns 502 until it is back).
 `examples/app.example.conf` shows what the script generates.
 
+## Main domain (apex)
+
+`@` stands for the apex `<DOMAIN>` itself (the wildcard certificate already
+covers it). The file is `nginx/conf.d/<DOMAIN>.conf`. Pick one variant; they
+share the same file, so switch with `--force`.
+
+```sh
+# A. Proxy the apex to a project (same options as a subdomain: picker, --ws)
+scripts/add-site.sh @ app:3000
+
+# B. Redirect the apex to a subdomain: 301 to https://www.<DOMAIN>$request_uri
+#    on both 80 and 443, no proxying (add the www site separately)
+scripts/add-site.sh @ --redirect www
+scripts/add-site.sh www app:3000
+```
+
+`--redirect` works only with `@`, takes no upstream, and the target is
+validated like any subdomain. Remove with `scripts/remove-site.sh @`. The apex
+DNS record must exist (Cloudflare flattens an apex CNAME if you use one);
+without a server block for it, Cloudflare shows error 525.
+
 ## Removing a project
 
 ```sh
-scripts/remove-site.sh <subdomain>
+scripts/remove-site.sh <subdomain|@>
 ```
 
 Deletes the site file, runs `nginx -t`, reloads (restoring the file if the test
