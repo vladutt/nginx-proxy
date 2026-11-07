@@ -18,5 +18,14 @@ server {
     include /etc/nginx/snippets/security-headers.conf;
     include /etc/nginx/snippets/rate-limit.conf;
 
-    return 301 https://@@TARGET@@$request_uri;
+    # `return` (server or location level) runs in the rewrite phase, before
+    # limit_req / limit_conn, so the limits would never apply. try_files runs
+    # after them: it falls through to the named location, which redirects.
+    location / {
+        try_files /.no-such-file @redirect;
+    }
+
+    location @redirect {
+        return 301 https://@@TARGET@@$request_uri;
+    }
 }
