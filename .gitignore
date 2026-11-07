@@ -1,6 +1,9 @@
 # Secrets and local config
 .env
-secrets/cloudflare.ini
+.env.*
+!.env.example
+secrets/*
+!secrets/*.example
 *.pem
 *.key
 
