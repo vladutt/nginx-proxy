@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 # Remove a proxied site. The shared wildcard certificate is not touched.
 #
-# Usage: scripts/remove-site.sh <subdomain>
+# Usage: scripts/remove-site.sh <subdomain|@>   ("@" = the apex domain)
 set -euo pipefail
 
 # shellcheck source=scripts/lib.sh
@@ -19,9 +19,9 @@ done
 
 DOMAIN="$(env_value DOMAIN)"
 [[ -n "$DOMAIN" ]] || die "DOMAIN is not set (copy .env.example to .env)"
-validate_label "$SUB"
+validate_site_name "$SUB"
 validate_domain "$DOMAIN"
-HOST="$SUB.$DOMAIN"
+HOST="$(host_for "$SUB" "$DOMAIN")"
 CONF="$CONF_DIR/$HOST.conf"
 
 [[ -f "$CONF" ]] || die "$CONF does not exist"
