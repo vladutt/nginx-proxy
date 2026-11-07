@@ -1,0 +1,44 @@
+services:
+  nginx:
+    image: nginx:1.28-alpine
+    container_name: nginx-proxy
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
+      - ./nginx/snippets:/etc/nginx/snippets:ro
+      - ./nginx/conf.d:/etc/nginx/conf.d:ro
+      - ./certbot/www:/var/www/certbot:ro
+      - ./certbot/conf:/etc/letsencrypt:ro
+    # Reaching services running on the host (not in a container):
+    # use host.docker.internal:<port> as the upstream.
+    extra_hosts:
+      - "host.docker.internal:host-gateway"
+    # Reload every 6h so renewed certificates are picked up (certbot cannot
+    # signal this container), then run nginx in the foreground.
+    command: >-
+      /bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done &
+      exec nginx -g "daemon off;"'
+    networks:
+      - proxy
+
+  certbot:
+    image: certbot/certbot:v3.1.0
+    container_name: nginx-proxy-certbot
+    restart: unless-stopped
+    volumes:
+      - ./certbot/www:/var/www/certbot
+      - ./certbot/conf:/etc/letsencrypt
+    # Renewal loop: twice a day certbot renews certificates that are close to
+    # expiry. nginx picks them up on its next scheduled reload (see above).
+    entrypoint: >-
+      /bin/sh -c 'trap exit TERM; while :; do
+      certbot renew --webroot -w /var/www/certbot --quiet;
+      sleep 12h & wait $${!}; done'
+
+networks:
+  proxy:
+    external: true
+    name: ${PROXY_NETWORK:-proxy}
