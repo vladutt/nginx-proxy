@@ -2,14 +2,15 @@
 # Add a proxied site: nginx/conf.d/<subdomain>.<DOMAIN>.conf
 #
 # Usage: scripts/add-site.sh <subdomain|@> [upstream] [--ws] [--force] [--dry-run]
-#        scripts/add-site.sh @ --redirect <sub> [--force] [--dry-run]
+#        scripts/add-site.sh <subdomain|@> --redirect <subdomain|@> [--force] [--dry-run]
 #   subdomain  the site is <subdomain>.<DOMAIN>; "@" means the apex <DOMAIN>
 #   upstream   host:port. A container name on the proxy network (myapp:3000)
 #              or a service on the host (host.docker.internal:3001).
 #              Omit it to pick from the running containers.
 #   --ws       enable WebSocket upgrade for this site
-#   --redirect <sub>  (apex "@" only) 301 the apex to https://<sub>.<DOMAIN>
-#              instead of proxying; takes no upstream
+#   --redirect <target>  301 this site to the target (a subdomain or "@" for
+#              the apex) instead of proxying, e.g. "www --redirect @";
+#              takes no upstream; the target must differ from the site
 #   --force    overwrite an existing site file
 #   --dry-run  print the generated config, change nothing
 #
@@ -20,7 +21,7 @@ set -euo pipefail
 # shellcheck source=scripts/lib.sh
 source "$(dirname "${BASH_SOURCE[0]}")/lib.sh"
 
-usage() { sed -n '2,17p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
+usage() { sed -n '2,18p' "${BASH_SOURCE[0]}" | sed 's/^# \{0,1\}//'; exit "${1:-1}"; }
 
 SUB="" UPSTREAM="" WS=0 FORCE=0 DRY=0 REDIRECT=""
 while (( $# )); do
@@ -42,10 +43,10 @@ while (( $# )); do
 done
 [[ -n "$SUB" ]] || usage 1
 if [[ -n "$REDIRECT" ]]; then
-  [[ "$SUB" == "@" ]] || die "--redirect is only for the apex domain (use '@')"
+  [[ "$SUB" != "$REDIRECT" ]] || die "a site cannot redirect to itself ('$SUB')"
   [[ -z "$UPSTREAM" ]] || die "--redirect takes no upstream"
   (( ! WS )) || die "--redirect cannot be combined with --ws"
-  validate_label "$REDIRECT"
+  validate_site_name "$REDIRECT"
 fi
 
 DOMAIN="$(env_value DOMAIN)"
@@ -107,7 +108,7 @@ UPSTREAM_DIRECTIVES="" WS_INCLUDE="" TARGET=""
 
 if [[ -n "$REDIRECT" ]]; then
   TEMPLATE="$TEMPLATE_DIR/redirect.conf.template"
-  TARGET="$REDIRECT.$DOMAIN"
+  TARGET="$(host_for "$REDIRECT" "$DOMAIN")"
   DEST="$TARGET (301)"
 else
   [[ -n "$UPSTREAM" ]] || pick_upstream
