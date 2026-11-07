@@ -116,6 +116,18 @@ Remove with `scripts/remove-site.sh @` / `remove-site.sh www`. Both DNS records
 (apex and `www`) must exist; without a server block for a host, Cloudflare
 shows error 525.
 
+**Redirect loops:** never let two hosts redirect to each other (for example
+`www --redirect @` together with `@ --redirect www`); browsers fail with
+"too many redirects". `add-site.sh` refuses to write `X --redirect Y` while
+`Y`'s file already redirects to `X`, unless you pass `--force`. Remove or
+change the other file first (`--force` re-run or `remove-site.sh`).
+
+**HSTS and redirects:** the port-80 redirect goes straight to the target
+over HTTPS, so the source host (e.g. `www`) never receives a
+`Strict-Transport-Security` header from port 80; the 443 redirect does send
+it. That is fine because HSTS is sent without `includeSubDomains`, so each
+host is covered only after the browser has itself seen it over HTTPS.
+
 ## Removing a project
 
 ```sh
