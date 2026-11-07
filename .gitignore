@@ -1,12 +1,12 @@
 # Secrets and local config
 .env
+secrets/cloudflare.ini
 *.pem
 *.key
 
 # Certificates / certbot state
 certs/
 certbot/conf/
-certbot/www/
 letsencrypt/
 
 # Runtime and scratch

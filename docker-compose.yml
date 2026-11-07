@@ -10,32 +10,36 @@ services:
       - ./nginx/nginx.conf:/etc/nginx/nginx.conf:ro
       - ./nginx/snippets:/etc/nginx/snippets:ro
       - ./nginx/conf.d:/etc/nginx/conf.d:ro
-      - ./certbot/www:/var/www/certbot:ro
       - ./certbot/conf:/etc/letsencrypt:ro
     # Reaching services running on the host (not in a container):
     # use host.docker.internal:<port> as the upstream.
     extra_hosts:
       - "host.docker.internal:host-gateway"
-    # Reload every 6h so renewed certificates are picked up (certbot cannot
-    # signal this container), then run nginx in the foreground.
+    # Certificate reload hook: certbot cannot signal this container, so a
+    # watcher checks the wildcard certificate every minute and reloads nginx
+    # as soon as certbot has replaced it. Then nginx runs in the foreground.
     command: >-
-      /bin/sh -c 'while :; do sleep 6h & wait $${!}; nginx -s reload; done &
+      /bin/sh -c 'last="";
+      while :; do
+      now=$$(cksum /etc/letsencrypt/live/wildcard/fullchain.pem 2>/dev/null);
+      if [ -n "$$last" ] && [ "$$now" != "$$last" ]; then nginx -s reload; fi;
+      last="$$now"; sleep 60; done &
       exec nginx -g "daemon off;"'
     networks:
       - proxy
 
   certbot:
-    image: certbot/certbot:v3.1.0
+    image: certbot/dns-cloudflare:v3.1.0
     container_name: nginx-proxy-certbot
     restart: unless-stopped
     volumes:
-      - ./certbot/www:/var/www/certbot
       - ./certbot/conf:/etc/letsencrypt
-    # Renewal loop: twice a day certbot renews certificates that are close to
-    # expiry. nginx picks them up on its next scheduled reload (see above).
+      - ./secrets:/run/secrets:ro
+    # Renewal loop: twice a day certbot renews the certificate if it is close
+    # to expiry (DNS-01 credentials are remembered from the issuance).
     entrypoint: >-
       /bin/sh -c 'trap exit TERM; while :; do
-      certbot renew --webroot -w /var/www/certbot --quiet;
+      certbot renew --quiet;
       sleep 12h & wait $${!}; done'
 
 networks:

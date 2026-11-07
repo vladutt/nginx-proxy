@@ -1,14 +1,10 @@
-# Managed by scripts/add-site.sh -- @@HOSTNAME@@ (stage 2: HTTPS enabled)
+# Managed by scripts/add-site.sh -- @@HOSTNAME@@
 server {
     listen 80;
     listen [::]:80;
     server_name @@HOSTNAME@@;
 
-    include /etc/nginx/snippets/acme-challenge.conf;
-
-    location / {
-        return 301 https://$host$request_uri;
-    }
+    return 301 https://$host$request_uri;
 }
 
 server {
@@ -17,9 +13,7 @@ server {
     http2 on;
     server_name @@HOSTNAME@@;
 
-    ssl_certificate         /etc/letsencrypt/live/@@HOSTNAME@@/fullchain.pem;
-    ssl_certificate_key     /etc/letsencrypt/live/@@HOSTNAME@@/privkey.pem;
-    ssl_trusted_certificate /etc/letsencrypt/live/@@HOSTNAME@@/chain.pem;
+    include /etc/nginx/snippets/ssl-cert.conf;
     include /etc/nginx/snippets/ssl-params.conf;
     include /etc/nginx/snippets/security-headers.conf;
 
