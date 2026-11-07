@@ -1,0 +1,21 @@
+# Managed by scripts/add-site.sh -- @@HOSTNAME@@ (redirect to @@TARGET@@)
+server {
+    listen 80;
+    listen [::]:80;
+    server_name @@HOSTNAME@@;
+
+    return 301 https://@@TARGET@@$request_uri;
+}
+
+server {
+    listen 443 ssl;
+    listen [::]:443 ssl;
+    http2 on;
+    server_name @@HOSTNAME@@;
+
+    include /etc/nginx/snippets/ssl-cert.conf;
+    include /etc/nginx/snippets/ssl-params.conf;
+    include /etc/nginx/snippets/security-headers.conf;
+
+    return 301 https://@@TARGET@@$request_uri;
+}
