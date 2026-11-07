@@ -1,8 +1,16 @@
+# Rotate container logs: at most 5 files of 10 MB per service.
+x-logging: &default-logging
+  driver: json-file
+  options:
+    max-size: "10m"
+    max-file: "5"
+
 services:
   nginx:
     image: nginx:1.28-alpine
     container_name: nginx-proxy
     restart: unless-stopped
+    logging: *default-logging
     ports:
       - "80:80"
       - "443:443"
@@ -32,6 +40,7 @@ services:
     image: certbot/dns-cloudflare:v3.1.0
     container_name: nginx-proxy-certbot
     restart: unless-stopped
+    logging: *default-logging
     volumes:
       - ./certbot/conf:/etc/letsencrypt
       - ./secrets:/run/secrets:ro

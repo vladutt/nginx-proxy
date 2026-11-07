@@ -160,9 +160,13 @@ curl -sI -H 'Host: unknown.<DOMAIN>' http://localhost/                  # connec
   allow the Docker bridge in the host firewall (`ufw`).
 - **Redirect loop behind Cloudflare**: SSL mode is "Flexible"; set it to
   "Full (strict)".
-- **Logs**: `docker compose logs -f nginx`.
+- **Logs**: `docker compose logs -f nginx`. Container logs are rotated by
+  Docker (`json-file`, 5 files of 10 MB per service, set once in
+  `docker-compose.yml`); change `max-size` / `max-file` there. Recreate the
+  containers (`docker compose up -d`) for a change to apply.
 
 ## Secrets
 
-`.env`, `secrets/cloudflare.ini`, `certbot/conf/` (certificates and keys),
-`*.pem`, `*.key` and `logs/` are git-ignored. Never commit them.
+`.env` and `.env.*` (except `.env.example`), everything in `secrets/` (except
+`*.example`), `certbot/conf/` (certificates and keys), `*.pem`, `*.key` and
+`logs/` are git-ignored. Never commit them.
