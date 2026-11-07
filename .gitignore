@@ -1,0 +1,14 @@
+# Secrets and local config
+.env
+*.pem
+*.key
+
+# Certificates / certbot state
+certs/
+certbot/conf/
+certbot/www/
+letsencrypt/
+
+# Runtime and scratch
+logs/
+.scratch/
