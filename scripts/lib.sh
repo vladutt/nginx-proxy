@@ -26,6 +26,16 @@ validate_label() {
     || die "invalid subdomain '$1' (lowercase letters, digits, '-'; max 63 chars)"
 }
 
+# Site name: a subdomain label, or "@" for the apex domain.
+validate_site_name() {
+  [[ "$1" == "@" ]] || validate_label "$1"
+}
+
+# host_for <sub|@> <domain> -> full hostname (apex for "@")
+host_for() {
+  if [[ "$1" == "@" ]]; then printf '%s' "$2"; else printf '%s.%s' "$1" "$2"; fi
+}
+
 validate_domain() {
   [[ "$1" =~ ^([a-z0-9]([a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$ ]] \
     || die "invalid DOMAIN '$1' (set it in .env)"
