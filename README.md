@@ -68,26 +68,64 @@ nginx starts fine even before a certificate exists.
 
 ## Adding a project in 3 steps
 
-1. **Make the project reachable by nginx.** Container: put it on the proxy
-   network (`docker network connect proxy <container>`, or add the external
-   `proxy` network to its own compose file). Host service: listen on `0.0.0.0`
-   or the Docker bridge address (not only `127.0.0.1`).
+nginx reaches projects through their **published host ports** via
+`host.docker.internal:<port>`. Projects need no shared network, so they can be
+stopped, rebuilt and recreated (`docker compose down && up`) with nothing to
+reconnect and no nginx reload.
+
+1. **Publish a port on the Docker bridge IP** in the project's own compose
+   file (not on all interfaces):
+   ```yaml
+   ports:
+     - "172.17.0.1:8000:8080"     # <bridge-ip>:<host-port>:<container-port>
+   ```
+   `host.docker.internal` resolves (`host-gateway`) to the docker0 bridge
+   address, so that is where nginx connects. Find yours with
+   `docker network inspect bridge -f '{{(index .IPAM.Config 0).Gateway}}'`
+   (usually `172.17.0.1`; use the value it prints). A port bound to the bridge
+   IP is **not** reachable on the server's public or LAN addresses.
 2. **Generate the site:**
    ```sh
-   scripts/add-site.sh app app:3000            # app.<DOMAIN> -> container app, port 3000
-   scripts/add-site.sh app host.docker.internal:3001   # service on the host
-   scripts/add-site.sh app app:3000 --ws       # WebSocket app
-   scripts/add-site.sh app                     # pick from running containers
+   scripts/add-site.sh app                      # pick the container; uses its published port
+   scripts/add-site.sh app host.docker.internal:8000   # explicit (localhost:8000 is rewritten)
+   scripts/add-site.sh app host.docker.internal:8000 --ws   # WebSocket app
    ```
-   The script validates the input, writes `nginx/conf.d/app.<DOMAIN>.conf`,
-   runs `nginx -t`, and reloads only if it passes (otherwise it rolls back).
-   `--force` overwrites, `--dry-run` prints the config only.
+   The picker lists running containers and defaults to their published host
+   port (you choose if there are several). If a port is published on all
+   interfaces (`0.0.0.0`/`::`) it warns that the app is publicly reachable,
+   bypassing Cloudflare and the rate limits, and prints the exact `ports:`
+   line to use instead. A container with no published port gets an explanation
+   (publish one, or use `--network`). The script validates the input, writes
+   `nginx/conf.d/app.<DOMAIN>.conf`, runs `nginx -t`, and reloads only if it
+   passes (otherwise it rolls back). `--force` overwrites, `--dry-run` prints
+   the config only.
 3. **Commit** the new file (it contains no secrets) and check
    `https://app.<DOMAIN>`.
 
-Container names resolve at request time through Docker DNS, so nginx still
-starts if a project container is down (it returns 502 until it is back).
-`examples/app.example.conf` shows what the script generates.
+The generated `proxy_pass http://host.docker.internal:<port>;` is static
+(`extra_hosts` is fixed when nginx starts), so `nginx -t` and nginx startup do
+not depend on the app being up; requests return 502 until it is. Services that
+run directly on the host work the same way; they must listen on the bridge IP
+or `0.0.0.0` (loopback-only is not reachable from the container).
+
+Notes on firewalls: Docker publishes ports through its own iptables rules, so
+`ufw` rules do not filter them; binding to the bridge IP is the protection
+here. `examples/app.example.conf` shows what the script generates.
+
+### Alternative: shared proxy network
+
+If you prefer container names, put the project on the `proxy` network and use
+`--network`:
+
+```sh
+docker network connect proxy <container>      # or add the external `proxy` network in its compose file
+scripts/add-site.sh app --network             # picker uses container-name:internal-port
+scripts/add-site.sh app app:3000              # explicit
+```
+
+Names resolve at request time through Docker DNS, so nginx still starts if the
+container is down. The catch: `docker network connect` is lost when the
+container is recreated, unless the network is in its compose file.
 
 ## Main domain (apex)
 
