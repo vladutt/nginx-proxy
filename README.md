@@ -86,12 +86,18 @@ reconnect and no nginx reload.
    IP is **not** reachable on the server's public or LAN addresses.
 2. **Generate the site:**
    ```sh
-   scripts/add-site.sh app                      # pick the container; uses its published port
-   scripts/add-site.sh app host.docker.internal:8000   # explicit (localhost:8000 is rewritten)
-   scripts/add-site.sh app host.docker.internal:8000 --ws   # WebSocket app
+   scripts/add-site.sh app 8000                 # app.<DOMAIN> -> host port 8000
+   scripts/add-site.sh @ 8000                   # the apex domain
+   scripts/add-site.sh bot 8443 --ws            # WebSocket app
+   scripts/add-site.sh app                      # no port: pick a container, uses its published port
+   scripts/add-site.sh app host.docker.internal:8000   # long form (localhost:8000 is rewritten)
    ```
-   The picker lists running containers and defaults to their published host
-   port (you choose if there are several). If a port is published on all
+   A bare port means `host.docker.internal:<port>` (1-65535). If a running
+   container publishes that port the script names it (`8443 -> container ...`)
+   and applies the warning below; if none does it only prints a note (a host
+   service, or the app is not up yet), since `nginx -t` does not need the app
+   running. The picker lists running containers and defaults to their
+   published host port (you choose if there are several). If a port is published on all
    interfaces (`0.0.0.0`/`::`) it warns that the app is publicly reachable,
    bypassing Cloudflare and the rate limits, and prints the exact `ports:`
    line to use instead. A container with no published port gets an explanation
