@@ -1,14 +1,16 @@
 #!/usr/bin/env bash
 # Add a proxied site: nginx/conf.d/<subdomain>.<DOMAIN>.conf
 #
-# Usage: scripts/add-site.sh <subdomain|@> [upstream] [--ws] [--force] [--dry-run]
+# Usage: scripts/add-site.sh <subdomain|@> [port|upstream] [--ws] [--force] [--dry-run]
 #        scripts/add-site.sh <subdomain|@> --redirect <subdomain|@> [--force] [--dry-run]
 #   subdomain  the site is <subdomain>.<DOMAIN>; "@" means the apex <DOMAIN>
-#   upstream   host:port, normally a published port of a project:
-#              host.docker.internal:8000 ("localhost:8000" is rewritten).
-#              A container name on the proxy network (myapp:3000) also works.
-#              Omit it to pick from the running containers; the picker uses
-#              the container's published host port.
+#   port       a bare port, e.g. "8000": shorthand for host.docker.internal:8000
+#              (a port the project publishes on the host, 1-65535). If a running
+#              container publishes it, it is named; otherwise a note is printed.
+#   upstream   host:port, e.g. host.docker.internal:8000 ("localhost:8000" is
+#              rewritten). A container name on the proxy network (myapp:3000)
+#              also works. Omit port/upstream to pick from the running
+#              containers; the picker uses the published host port.
 #   --network  picker: use container-name:internal-port on the shared proxy
 #              network instead of the published host port
 #   --ws       enable WebSocket upgrade for this site
@@ -79,6 +81,50 @@ bridge_ip() {
 # read_choice <prompt> -> REPLY (dies on EOF)
 read_choice() { read -r -p "$1" REPLY || die "no selection (no input)"; }
 
+# published_ports <container> -> lines "<container-port> <host-ip> <host-port>" (tcp, deduped)
+published_ports() {
+  docker inspect -f '{{range $p,$b := .NetworkSettings.Ports}}{{range $b}}{{$p}} {{.HostIp}} {{.HostPort}}{{"\n"}}{{end}}{{end}}' "$1" \
+    | awk '$1 ~ /\/tcp$/ { sub("/tcp", "", $1); if (!seen[$1 " " $3]++) print $1, $2, $3 }'
+}
+
+# warn_exposure <container> <container-port> <host-ip> <host-port>
+warn_exposure() {
+  local name="$1" cport="$2" hip="$3" hport="$4" br
+  br="$(bridge_ip)"
+  case "$hip" in
+    0.0.0.0|::|"")
+      warn "warning: $name publishes $hport on all interfaces: publicly reachable,"
+      warn "bypassing Cloudflare and the rate limits. Prefer this line in its compose file:"
+      warn "    ports:"
+      warn "      - \"$br:$hport:$cport\""
+      warn "then recreate it (docker compose up -d)." ;;
+    127.*|::1)
+      warn "warning: $name publishes $hport on loopback only; nginx cannot reach that."
+      warn "Publish it on the bridge IP instead: \"$br:$hport:$cport\"." ;;
+  esac
+}
+
+# note_port_owner <host-port>: say which container publishes it (if any).
+# Informational only: nginx -t does not need the app to be up.
+note_port_owner() {
+  local port="$1" name l cport hip hport found=0
+  while IFS= read -r name; do
+    [[ -n "$name" ]] || continue
+    while IFS= read -r l; do
+      [[ -n "$l" ]] || continue
+      read -r cport hip hport <<< "$l"
+      [[ "$hport" == "$port" ]] || continue
+      warn "note: $port -> container $name (container port $cport)"
+      warn_exposure "$name" "$cport" "$hip" "$hport"
+      found=1
+      break
+    done < <(published_ports "$name")
+  done < <(docker ps --filter "publish=$port" --format '{{.Names}}' 2>/dev/null || true)
+  if (( ! found )); then
+    warn "note: no running container publishes $port; it may be a host service, or not running yet (nginx returns 502 until it is up)."
+  fi
+}
+
 # Container picker -> sets PICK_NAME (container) and PICK_NET (its networks);
 # sets UPSTREAM directly and returns 1 if the "service on the host" entry was chosen.
 pick_container() {
@@ -110,8 +156,7 @@ pick_upstream_host() {
   local pp=() l cport hip hport br sel=0
   while IFS= read -r l; do
     [[ -n "$l" ]] && pp+=("$l")
-  done < <(docker inspect -f '{{range $p,$b := .NetworkSettings.Ports}}{{range $b}}{{$p}} {{.HostIp}} {{.HostPort}}{{"\n"}}{{end}}{{end}}' "$PICK_NAME" \
-            | awk '$1 ~ /\/tcp$/ { sub("/tcp", "", $1); if (!seen[$1 " " $3]++) print $1, $2, $3 }')
+  done < <(published_ports "$PICK_NAME")
   br="$(bridge_ip)"
   if (( ${#pp[@]} == 0 )); then
     warn "error: $PICK_NAME publishes no TCP port, so nginx cannot reach it through the host."
@@ -135,17 +180,7 @@ pick_upstream_host() {
   fi
   read -r cport hip hport <<< "${pp[sel]}"
   UPSTREAM="host.docker.internal:$hport"
-  case "$hip" in
-    0.0.0.0|::|"")
-      warn "warning: $PICK_NAME publishes $hport on all interfaces: publicly reachable,"
-      warn "bypassing Cloudflare and the rate limits. Prefer this line in its compose file:"
-      warn "    ports:"
-      warn "      - \"$br:$hport:$cport\""
-      warn "then recreate it (docker compose up -d)." ;;
-    127.*|::1)
-      warn "warning: $PICK_NAME publishes $hport on loopback only; nginx cannot reach that."
-      warn "Publish it on the bridge IP instead: \"$br:$hport:$cport\"." ;;
-  esac
+  warn_exposure "$PICK_NAME" "$cport" "$hip" "$hport"
 }
 
 # --network mode: container name + container-internal port on the proxy network.
@@ -187,6 +222,12 @@ if [[ -n "$REDIRECT" ]]; then
   fi
 else
   [[ -n "$UPSTREAM" ]] || pick_upstream
+  if [[ "$UPSTREAM" =~ ^[0-9]+$ ]]; then
+    # Bare port: a published port on the host, reached via host.docker.internal.
+    validate_upstream "host.docker.internal:$UPSTREAM"
+    UPSTREAM="host.docker.internal:$((10#$UPSTREAM))"
+    note_port_owner "${UPSTREAM##*:}"
+  fi
   validate_upstream "$UPSTREAM"
 
   UP_HOST="${UPSTREAM%:*}"; UP_PORT="${UPSTREAM##*:}"

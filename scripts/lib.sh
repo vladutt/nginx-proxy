@@ -44,7 +44,7 @@ validate_domain() {
 validate_upstream() {
   local up="$1" host port
   [[ "$up" =~ ^[A-Za-z0-9._-]+:[0-9]{1,5}$ ]] \
-    || die "invalid upstream '$up' (expected host:port, e.g. myapp:3000)"
+    || die "invalid upstream '$up' (expected a port or host:port, e.g. 8000 or myapp:3000)"
   host="${up%:*}"; port="${up##*:}"
   [[ -n "$host" ]] || die "empty upstream host"
   (( 10#$port >= 1 && 10#$port <= 65535 )) || die "port out of range: $port"
